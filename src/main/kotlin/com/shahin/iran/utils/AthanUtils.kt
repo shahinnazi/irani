@@ -1,0 +1,179 @@
+package com.shahin.iran.utils
+
+import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.ContentResolver
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.res.Resources
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import androidx.annotation.RawRes
+import androidx.core.app.ActivityCompat
+import androidx.core.app.AlarmManagerCompat
+import androidx.core.content.edit
+import androidx.core.content.getSystemService
+import androidx.core.net.toUri
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.shahin.iran.variants.debugLog
+import com.shahin.iran.ALARMS_BASE_ID
+import com.shahin.iran.ALARM_TAG
+import com.shahin.iran.BROADCAST_ALARM
+import com.shahin.iran.KEY_EXTRA_PRAYER
+import com.shahin.iran.KEY_EXTRA_PRAYER_TIME
+import com.shahin.iran.LAST_PLAYED_ATHAN_JDN
+import com.shahin.iran.LAST_PLAYED_ATHAN_KEY
+import com.shahin.iran.PREF_ATHAN_ALARM
+import com.shahin.iran.PREF_ATHAN_GAP
+import com.shahin.iran.PREF_ATHAN_URI
+import com.shahin.iran.R
+import com.shahin.iran.entities.Jdn
+import com.shahin.iran.entities.PrayTime
+import com.shahin.iran.entities.PrayTime.Companion.get
+import com.shahin.iran.global.coordinates
+import com.shahin.iran.global.notificationAthan
+import com.shahin.iran.service.AlarmWorker
+import com.shahin.iran.service.AthanNotification
+import com.shahin.iran.service.BroadcastReceivers
+import com.shahin.iran.ui.athan.AthanActivity
+import java.util.GregorianCalendar
+import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+
+// https://stackoverflow.com/a/69505596
+fun Resources.getRawUri(@RawRes rawRes: Int) = "%s://%s/%s/%s".format(
+    ContentResolver.SCHEME_ANDROID_RESOURCE, this.getResourcePackageName(rawRes),
+    this.getResourceTypeName(rawRes), this.getResourceEntryName(rawRes)
+)
+
+fun getAthanUri(context: Context): Uri =
+    (context.preferences.getString(PREF_ATHAN_URI, null)?.takeIf { it.isNotEmpty() }
+        ?: context.resources.getRawUri(R.raw.special)).toUri()
+
+fun startAthan(context: Context, prayTime: PrayTime, intendedTime: Long?) {
+    debugLog("Alarms: startAthan for $prayTime")
+    if (intendedTime == null) return startAthanBody(context, prayTime)
+    // if alarm is off by 15 minutes, just skip
+    if (abs(System.currentTimeMillis() - intendedTime).milliseconds > 15.minutes) return
+
+    // If at the of being is disabled by user, skip
+    if (prayTime !in getEnabledAlarms(context)) return
+
+    // skips if already called through either WorkManager or AlarmManager
+    val preferences = context.preferences
+    val lastPlayedAthanKey = preferences.getString(LAST_PLAYED_ATHAN_KEY, null)
+    val lastPlayedAthanJdn = preferences.getJdnOrNull(LAST_PLAYED_ATHAN_JDN)
+    val today = Jdn.today()
+    if (lastPlayedAthanJdn == today && lastPlayedAthanKey == prayTime.name) return
+    preferences.edit {
+        putString(LAST_PLAYED_ATHAN_KEY, prayTime.name)
+        putJdn(LAST_PLAYED_ATHAN_JDN, today)
+    }
+
+    startAthanBody(context, prayTime)
+}
+
+private fun startAthanBody(context: Context, prayTime: PrayTime) {
+    runCatching {
+        debugLog("Alarms: startAthanBody for $prayTime")
+
+        runCatching {
+            context.getSystemService<PowerManager>()?.newWakeLock(
+                PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.SCREEN_DIM_WAKE_LOCK,
+                "iran:alarm"
+            )?.acquire(30.seconds.inWholeMilliseconds)
+        }.onFailure(logException)
+
+        if (notificationAthan.value || ActivityCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) context.startService(
+            Intent(context, AthanNotification::class.java)
+                .putExtra(KEY_EXTRA_PRAYER, prayTime.name)
+        ) else startAthanActivity(context, prayTime)
+    }.onFailure(logException)
+}
+
+fun startAthanActivity(context: Context, prayTime: PrayTime?) {
+    context.startActivity(
+        Intent(context, AthanActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra(KEY_EXTRA_PRAYER, prayTime?.name)
+    )
+}
+
+fun getEnabledAlarms(context: Context): Set<PrayTime> {
+    if (coordinates.value == null) return emptySet()
+    return (context.preferences.getString(PREF_ATHAN_ALARM, null)?.trim() ?: return emptySet())
+        .splitFilterNotEmpty(",")
+        .mapNotNull { PrayTime.fromName(it) }
+        .toSet()
+}
+
+fun scheduleAlarms(context: Context) {
+    val enabledAlarms = getEnabledAlarms(context).takeIf { it.isNotEmpty() } ?: return
+    val athanGap = (context.preferences.getString(PREF_ATHAN_GAP, null)?.toDoubleOrNull()
+        ?: .0).minutes.inWholeMilliseconds
+
+    val prayTimes = coordinates.value?.calculatePrayTimes() ?: return
+    // convert spacedComma separated string to a set
+    enabledAlarms.forEachIndexed { i, prayTime ->
+        scheduleAlarm(context, prayTime, GregorianCalendar().also {
+            // if (name == ISHA_KEY) return@also it.add(Calendar.SECOND, 5)
+            it[GregorianCalendar.HOUR_OF_DAY] = 0
+            it[GregorianCalendar.MINUTE] = 0
+            it[GregorianCalendar.SECOND] = 0
+            it[GregorianCalendar.MILLISECOND] = 0
+            it.timeInMillis += prayTimes[prayTime].toMillis()
+        }.timeInMillis - athanGap, i)
+    }
+}
+
+private fun scheduleAlarm(context: Context, prayTime: PrayTime, timeInMillis: Long, i: Int) {
+    val remainedMillis = timeInMillis - System.currentTimeMillis()
+    debugLog("Alarms: $prayTime in ${remainedMillis / 60000} minutes")
+    if (remainedMillis < 0) return // Don't set alarm in past
+
+    run { // Schedule in both alarmmanager and workmanager, startAthan has the logic to skip duplicated calls
+        val workerInputData = Data.Builder().putLong(KEY_EXTRA_PRAYER_TIME, timeInMillis)
+            .putString(KEY_EXTRA_PRAYER, prayTime.name).build()
+        val alarmWorker = OneTimeWorkRequestBuilder<AlarmWorker>()
+            .setInitialDelay(remainedMillis, TimeUnit.MILLISECONDS)
+            .setInputData(workerInputData)
+            .build()
+        WorkManager.getInstance(context)
+            .beginUniqueWork(ALARM_TAG + i, ExistingWorkPolicy.REPLACE, alarmWorker)
+            .enqueue()
+    }
+
+    val am = context.getSystemService<AlarmManager>() ?: return
+    val pendingIntent = PendingIntent.getBroadcast(
+        context, ALARMS_BASE_ID + i,
+        Intent(context, BroadcastReceivers::class.java)
+            .putExtra(KEY_EXTRA_PRAYER, prayTime.name)
+            .putExtra(KEY_EXTRA_PRAYER_TIME, timeInMillis)
+            .setAction(BROADCAST_ALARM),
+        PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+    )
+    if (AlarmManagerCompat.canScheduleExactAlarms(am)) AlarmManagerCompat.setExactAndAllowWhileIdle(
+        am,
+        AlarmManager.RTC_WAKEUP,
+        timeInMillis,
+        pendingIntent,
+    ) else AlarmManagerCompat.setAndAllowWhileIdle(
+        am,
+        AlarmManager.RTC_WAKEUP,
+        timeInMillis,
+        pendingIntent
+    )
+}
