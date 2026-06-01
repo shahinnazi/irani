@@ -1,0 +1,37 @@
+{
+  "version": 3,
+  "artifactType": {
+    "type": "APK",
+    "kind": "Directory"
+  },
+  "applicationId": "com.shahin.iran",
+  "variantName": "release",
+  "elements": [
+    {
+      "type": "SINGLE",
+      "filters": [],
+      "attributes": [],
+      "versionCode": 1111,
+      "versionName": "1111",
+      "outputFile": "PersianCalendar-1111-main-10599-28e92d875-dirty-release.apk"
+    }
+  ],
+  "elementType": "File",
+  "baselineProfiles": [
+    {
+      "minApi": 28,
+      "maxApi": 30,
+      "baselineProfiles": [
+        "baselineProfiles/1/PersianCalendar-1111-main-10599-28e92d875-dirty-release.dm"
+      ]
+    },
+    {
+      "minApi": 31,
+      "maxApi": 2147483647,
+      "baselineProfiles": [
+        "baselineProfiles/0/PersianCalendar-1111-main-10599-28e92d875-dirty-release.dm"
+      ]
+    }
+  ],
+  "minSdkVersionForDexing": 24
+}
