@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "532511174577",
+    "project_id": "corosh-4fa55",
+    "storage_bucket": "corosh-4fa55.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532511174577:android:b109354b42309ae39f5790",
+        "android_client_info": {
+          "package_name": "com.shahin.iran"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_WuyMHd-0ZvG4sF1Y3dui6o3HF4vaH8o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532511174577:android:153a4e04a960e5d39f5790",
+        "android_client_info": {
+          "package_name": "com.shahin.iran"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_WuyMHd-0ZvG4sF1Y3dui6o3HF4vaH8o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532511174577:android:bb44570889f10b3e9f5790",
+        "android_client_info": {
+          "package_name": "com.shahin.iran.debug"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_WuyMHd-0ZvG4sF1Y3dui6o3HF4vaH8o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
